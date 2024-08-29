@@ -19,11 +19,9 @@ struct Report {
 }
 
 impl Report {
-    /// Creates a new report from a panic.
-    pub fn new(panic: &PanicInfo) -> Self {
+    /// Creates a new crash report.
+    pub fn new(metadata: &Metadata, panic: &PanicInfo) -> Self {
         let captured_at = DateTime::<Utc>::from(SystemTime::now()).to_rfc3339();
-        const PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
-        const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
         let binary_name = std::env::args().next();
         let working_dir = std::env::current_dir().ok();
         let os = std::env::consts::OS.to_owned();
@@ -42,14 +40,37 @@ impl Report {
 
         Self {
             captured_at,
-            package_name: PACKAGE_NAME.to_owned(),
-            package_version: PACKAGE_VERSION.to_owned(),
+            package_name: metadata.name.clone(),
+            package_version: metadata.version.clone(),
             binary_name,
             working_dir,
             operating_system: os,
             panic_message,
             panic_location,
             backtrace,
+        }
+    }
+}
+
+/// Information about the host application that is used to populate the crash
+/// report and the error message shown to users.
+#[derive(Clone)]
+pub struct Metadata {
+    /// The name of the host application.
+    name: String,
+    /// The version of the host application.
+    version: String,
+    /// The URL of the GitHub repository for the host application.
+    repository: String,
+}
+
+impl Metadata {
+    /// Create a new metadata object.
+    pub fn new(name: String, version: String, repository: String) -> Self {
+        Self {
+            name,
+            version,
+            repository,
         }
     }
 }
@@ -67,13 +88,35 @@ impl Report {
 ///
 /// * The executable is a release build.
 /// * The RUST_BACKTRACE environment variable is not set.
-pub fn init_crash_reporter() {
+///
+/// This method uses information about the host application (name, version,
+/// repository) to populate the crash report and error message. You can
+/// construct a [`Metadata`] object manually and pass it to the method. If no
+/// [`Metadata`] is provided, it is inferred from the information in the host
+/// application's package manifest.
+#[macro_export]
+macro_rules! init_crash_reporter {
+    ($metadata: expr) => {
+        $crate::init_crash_reporter($metadata)
+    };
+
+    () => {
+        $crate::init_crash_reporter($crate::Metadata::new(
+            env!("CARGO_PKG_NAME").to_owned(),
+            env!("CARGO_PKG_VERSION").to_owned(),
+            env!("CARGO_PKG_REPOSITORY").to_owned(),
+        ));
+    };
+}
+
+#[doc(hidden)]
+pub fn init_crash_reporter(metadata: Metadata) {
     let is_release_mode = cfg!(not(debug_assertions));
     let backtrace_enabled = std::env::var("RUST_BACKTRACE").is_ok();
 
     if is_release_mode && !backtrace_enabled {
-        std::panic::set_hook(Box::new(|panic| {
-            let report = Report::new(panic);
+        std::panic::set_hook(Box::new(move |panic| {
+            let report = Report::new(&metadata, panic);
             let content = toml::to_string_pretty(&report).expect("report should serialize to toml");
             let output_dir = std::env::temp_dir()
                 .join(&report.package_name)
@@ -109,7 +152,7 @@ pub fn init_crash_reporter() {
                 report to help us better diagnose the problem."},
                 report.package_name,
                 report_path.display(),
-                env!("CARGO_PKG_REPOSITORY")
+                metadata.repository
             );
         }))
     }
