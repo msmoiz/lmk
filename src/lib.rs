@@ -15,7 +15,7 @@ struct Report {
     operating_system: String,
     panic_message: Option<String>,
     panic_location: String,
-    backtrace: Option<String>,
+    backtrace: String,
 }
 
 impl Report {
@@ -38,14 +38,7 @@ impl Report {
             .map(|loc| format!("{}:{}:{}", loc.file(), loc.line(), loc.column()))
             .expect("panic location should always be set");
 
-        let backtrace = {
-            let backtrace = std::backtrace::Backtrace::capture();
-            use std::backtrace::BacktraceStatus;
-            match backtrace.status() {
-                BacktraceStatus::Captured => Some(backtrace.to_string()),
-                _ => None,
-            }
-        };
+        let backtrace = std::backtrace::Backtrace::force_capture().to_string();
 
         Self {
             captured_at,
