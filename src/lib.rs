@@ -70,9 +70,15 @@ impl Report {
 /// message displayed to users directs them to the crash report and encourages
 /// them to raise an issue on GitHub in the relevant repository.
 ///
-/// The panic hook is only registered for release builds.
+/// The panic hook is only registered when the following conditions are met:
+///
+/// * The executable is a release build.
+/// * The RUST_BACKTRACE environment variable is not set.
 pub fn init_crash_reporter() {
-    if cfg!(not(debug_assertions)) {
+    let is_release_mode = cfg!(not(debug_assertions));
+    let backtrace_enabled = std::env::var("RUST_BACKTRACE").is_ok();
+
+    if is_release_mode && !backtrace_enabled {
         std::panic::set_hook(Box::new(|panic| {
             let report = Report::new(panic);
             let content = toml::to_string_pretty(&report).expect("report should serialize to toml");
